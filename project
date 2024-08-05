@@ -1,0 +1,111 @@
+import numpy as np
+import pandas as pd
+import sqlite3
+import requests
+
+%matplotlib inline
+
+# Read the dump of USDA Food Composition Database into a DataFrame
+column_names = ['NDB_No', 'FdGrp_Cd', 'Long_Desc', 'Shrt_Desc', 'ComName',
+                'ManufacName', 'Survey', 'Ref_desc', 'Refuse', 'SciName',
+                'N_Factor', 'Pro_Factor', 'Fat_Factor', 'CHO_Factor']
+
+food_df = pd.read_csv('data/FOOD_DES.txt', sep='^', names=column_names, na_values='~', encoding='latin1', quotechar='~')
+
+# How many products do we have?
+product_count = food_df.shape[0]
+print(f"Number of products: {product_count}")
+
+# Variables distribution
+food_df['Refuse'].hist(bins=30)
+plt.title('Histogram of Refuse')
+plt.show()
+
+food_df['N_Factor'].plot(kind='box')
+plt.title('Boxplot of N_Factor')
+plt.show()
+
+# Top-10 food manufacturers with more products
+top_10_manufacturers = food_df['ManufacName'].value_counts().head(10)
+print(top_10_manufacturers)
+
+top_10_manufacturers.plot(kind='bar')
+plt.title('Top-10 Food Manufacturers by Product Count')
+plt.show()
+
+# Analyzing Starbucks nutrition facts
+conn = sqlite3.connect('starbucks.db')
+query = 'SELECT * FROM drinks WHERE Calories > 100'
+drinks_df = pd.read_sql(query, conn)
+conn.close()
+
+# Item with the highest calories
+max_calories_item = drinks_df.loc[drinks_df['Calories'].idxmax()]
+print(f"Item with the highest calories: {max_calories_item['Beverage']}, Calories: {max_calories_item['Calories']}")
+
+# Create two groups of items
+less_equal_150_cal = drinks_df[drinks_df['Calories'] <= 150]
+more_150_cal = drinks_df[drinks_df['Calories'] > 150]
+
+# Compare item characteristics
+def compare_groups(field):
+    if field not in drinks_df.columns:
+        raise ValueError("Field not found")
+    
+    plt.hist(less_equal_150_cal[field], bins=30, alpha=0.4, label='<= 150 calories')
+    plt.hist(more_150_cal[field], bins=30, alpha=0.4, label='> 150 calories')
+    plt.title(f'Comparison of {field}')
+    plt.legend()
+    plt.show()
+
+compare_groups('Calories')
+compare_groups('Sodium')
+compare_groups('Total Carbohydrates')
+compare_groups('Protein')
+
+# Get data from Wikipedia using its API
+url = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/all-agents/Healthy_diet/monthly/2015010100/2019100100"
+response = requests.get(url)
+data = response.json()
+
+pageviews_df = pd.DataFrame(data['items'])
+pageviews_df['timestamp'] = pd.to_datetime(pageviews_df['timestamp'], format='%Y%m%d%H')
+pageviews_df['views'] = pageviews_df['views'].astype(int)
+
+# When was the highest search peak?
+max_pageviews_str = pageviews_df.loc[pageviews_df['views'].idxmax(), 'timestamp']
+max_pageviews_date = pd.to_datetime(max_pageviews_str)
+print(f"Highest search peak: {max_pageviews_date}")
+
+plt.figure(figsize=(14, 6))
+plt.plot(pageviews_df['timestamp'], pageviews_df['views'])
+plt.axvline(x=max_pageviews_str, color='green')
+plt.xticks(rotation=90)
+plt.show()
+
+# Get more data from Wikipedia API
+def get_pageviews_count(*args):
+    if not args:
+        raise ValueError("At least one article name must be provided")
+    
+    pageviews_count = {}
+    
+    for article in args:
+        url = f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/all-agents/{article}/monthly/2018010100/2018123100"
+        response = requests.get(url)
+        data = response.json()
+        
+        total_views = sum(item['views'] for item in data['items'])
+        pageviews_count[article] = total_views
+    
+    return pageviews_count
+
+print(get_pageviews_count('Healthy_diet', 'Food', 'Obesity'))
+
+# Obesity trends in the USA
+url = 'https://en.wikipedia.org/wiki/Obesity_in_the_United_States'
+obesity_df = pd.read_html(url, na_values='—')[1]
+
+# Sort the states by Obesity rank and get the 5 states at the top
+top_5_states = obesity_df.sort_values(by='Rank', ascending=True).head(5)
+print(top_5_states[['State', 'Rank']])
